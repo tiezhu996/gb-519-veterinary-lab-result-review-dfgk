@@ -15,6 +15,10 @@ const (
 
 var AllSpecimenState = []string{"received", "testing", "hold", "released", "disposed"}
 
+// SettledSpecimenStates are the states that count as 结清 when a 动物样本来源
+// is closed: every specimen under the case must be released or disposed first.
+var SettledSpecimenStates = []string{"released", "disposed"}
+
 type SignoffState string
 
 const (

@@ -20,6 +20,14 @@ type AnimalCase struct {
 
 func (item *AnimalCase) GetBase() *BaseModel { return &item.BaseModel }
 
+// AnimalCaseSummary enriches a list row with the number of specimens under the
+// case that are neither released nor disposed, so the workbench can show how
+// many 未结样本 still block closing.
+type AnimalCaseSummary struct {
+	AnimalCase
+	OpenSpecimens int64 `json:"openSpecimens"`
+}
+
 func (item AnimalCase) TableName() string { return "animal_cases" }
 
 var AnimalCaseInitialStatus = "registered"

@@ -15,6 +15,7 @@ export interface DomainRecord {
   effectiveAt: string;
   evidence: string;
   relatedCode: string;
+  openSpecimens?: number;
   preparedBy?: string;
   reviewedBy?: string;
   reviewReason?: string;

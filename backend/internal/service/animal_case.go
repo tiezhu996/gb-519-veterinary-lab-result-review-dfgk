@@ -13,26 +13,43 @@ import (
 )
 
 type AnimalCaseService interface {
-	List(context.Context, dto.PageQuery) (repository.Page[model.AnimalCase], error)
+	List(context.Context, dto.PageQuery) (repository.Page[model.AnimalCaseSummary], error)
 	Get(context.Context, uint) (model.AnimalCase, error)
 	Create(context.Context, dto.CreateAnimalCase, string, string) (model.AnimalCase, error)
 	Update(context.Context, uint, dto.UpdateAnimalCase, string, string) (model.AnimalCase, error)
-	Transition(context.Context, uint, dto.TransitionRequest, string, string) (model.AnimalCase, error)
+	Transition(context.Context, uint, dto.TransitionRequest, string, string, string) (model.AnimalCase, error)
 	Delete(context.Context, uint, string, string) error
 	StatusCounts(context.Context) (map[string]int64, error)
 }
 
 type animalCaseService struct {
 	repository repository.AnimalCaseRepository
+	specimens  repository.SpecimenRepository
 	security   SecurityService
 }
 
-func NewAnimalCaseService(repo repository.AnimalCaseRepository, security SecurityService) AnimalCaseService {
-	return &animalCaseService{repository: repo, security: security}
+func NewAnimalCaseService(repo repository.AnimalCaseRepository, specimens repository.SpecimenRepository, security SecurityService) AnimalCaseService {
+	return &animalCaseService{repository: repo, specimens: specimens, security: security}
 }
 
-func (s *animalCaseService) List(ctx context.Context, query dto.PageQuery) (repository.Page[model.AnimalCase], error) {
-	return s.repository.List(ctx, query)
+func (s *animalCaseService) List(ctx context.Context, query dto.PageQuery) (repository.Page[model.AnimalCaseSummary], error) {
+	page, err := s.repository.List(ctx, query)
+	if err != nil {
+		return repository.Page[model.AnimalCaseSummary]{}, err
+	}
+	codes := make([]string, 0, len(page.Items)*2)
+	for _, item := range page.Items {
+		codes = append(codes, caseLinkCodes(item)...)
+	}
+	counts, err := s.specimens.CountOpenByRelatedCodes(ctx, codes)
+	if err != nil {
+		return repository.Page[model.AnimalCaseSummary]{}, fmt.Errorf("count open specimens: %w", err)
+	}
+	items := make([]model.AnimalCaseSummary, 0, len(page.Items))
+	for _, item := range page.Items {
+		items = append(items, model.AnimalCaseSummary{AnimalCase: item, OpenSpecimens: openSpecimenCount(counts, item)})
+	}
+	return repository.Page[model.AnimalCaseSummary]{Items: items, Total: page.Total, Page: page.Page, PageSize: page.PageSize}, nil
 }
 
 func (s *animalCaseService) Get(ctx context.Context, id uint) (model.AnimalCase, error) {
@@ -89,7 +106,7 @@ func (s *animalCaseService) Update(ctx context.Context, id uint, input dto.Updat
 	return s.repository.Get(ctx, id)
 }
 
-func (s *animalCaseService) Transition(ctx context.Context, id uint, input dto.TransitionRequest, actor, requestID string) (model.AnimalCase, error) {
+func (s *animalCaseService) Transition(ctx context.Context, id uint, input dto.TransitionRequest, actor, role, requestID string) (model.AnimalCase, error) {
 	current, err := s.repository.Get(ctx, id)
 	if err != nil {
 		return model.AnimalCase{}, err
@@ -97,6 +114,18 @@ func (s *animalCaseService) Transition(ctx context.Context, id uint, input dto.T
 	target := strings.TrimSpace(input.Status)
 	if !constants.CanTransition(constants.AnimalCaseTransitions, current.Status, target) {
 		return model.AnimalCase{}, fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, current.Status, target)
+	}
+	if target == "closed" {
+		if role != model.RoleReviewer && role != model.RoleAdmin {
+			return model.AnimalCase{}, ErrCaseCloseRole
+		}
+		counts, err := s.specimens.CountOpenByRelatedCodes(ctx, caseLinkCodes(current))
+		if err != nil {
+			return model.AnimalCase{}, fmt.Errorf("count open specimens: %w", err)
+		}
+		if open := openSpecimenCount(counts, current); open > 0 {
+			return model.AnimalCase{}, fmt.Errorf("%w：还剩 %d 条检验样本未放行也未处置", ErrCaseOpenSpecimens, open)
+		}
 	}
 	before := current.Status
 	current.Status = target
@@ -131,4 +160,27 @@ func validateAnimalCaseBusinessFields(code, name, facility, owner string) error 
 		return ErrInvalidInput
 	}
 	return nil
+}
+
+// caseLinkCodes returns the non-empty codes a specimen can reference to belong
+// to this case: the case code itself or the shared related batch code.
+func caseLinkCodes(item model.AnimalCase) []string {
+	seen := make(map[string]bool, 2)
+	codes := make([]string, 0, 2)
+	for _, code := range []string{item.Code, item.RelatedCode} {
+		code = strings.TrimSpace(code)
+		if code != "" && !seen[code] {
+			seen[code] = true
+			codes = append(codes, code)
+		}
+	}
+	return codes
+}
+
+func openSpecimenCount(counts map[string]int64, item model.AnimalCase) int64 {
+	var open int64
+	for _, code := range caseLinkCodes(item) {
+		open += counts[code]
+	}
+	return open
 }

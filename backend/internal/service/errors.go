@@ -12,4 +12,6 @@ var (
 	ErrLocked            = errors.New("record is locked after peer review begins")
 	ErrPreparationOwner  = errors.New("only the original preparer may edit or submit this draft")
 	ErrSeparationOfDuty  = errors.New("preparer and reviewer must be different users")
+	ErrCaseCloseRole     = errors.New("结单需要复核员或管理员角色，现场操作员不能关闭来源单")
+	ErrCaseOpenSpecimens = errors.New("来源单名下检验样本未全部结清，不能关闭")
 )
