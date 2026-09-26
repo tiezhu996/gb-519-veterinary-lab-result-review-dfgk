@@ -48,6 +48,7 @@ func (s *specimenService) Create(ctx context.Context, input dto.CreateSpecimen, 
 			Code: strings.ToUpper(strings.TrimSpace(input.Code)), Name: strings.TrimSpace(input.Name),
 			Status: model.SpecimenInitialStatus, Version: 1, Description: strings.TrimSpace(input.Description),
 		},
+		CaseCode: strings.ToUpper(strings.TrimSpace(input.CaseCode)),
 		Facility: strings.TrimSpace(input.Facility), Owner: strings.TrimSpace(input.Owner),
 		Category: strings.TrimSpace(input.Category), RiskLevel: input.RiskLevel,
 		MetricValue: input.MetricValue, MetricUnit: strings.TrimSpace(input.MetricUnit),
@@ -71,6 +72,7 @@ func (s *specimenService) Update(ctx context.Context, id uint, input dto.UpdateS
 	}
 	current.Name = strings.TrimSpace(input.Name)
 	current.Description = strings.TrimSpace(input.Description)
+	current.CaseCode = strings.ToUpper(strings.TrimSpace(input.CaseCode))
 	current.Facility = strings.TrimSpace(input.Facility)
 	current.Owner = strings.TrimSpace(input.Owner)
 	current.Category = strings.TrimSpace(input.Category)

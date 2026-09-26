@@ -6,6 +6,8 @@ export interface DomainRecord {
   status: string;
   version: number;
   description: string;
+  caseCode?: string;
+  unsettledSpecimens?: number;
   facility: string;
   owner: string;
   category: string;

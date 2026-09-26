@@ -33,6 +33,7 @@ docker compose down -v --remove-orphans
 | 结果签发 | `ResultSignoff` | `/api/signoff` | draft, peer_review, signed, rejected |
 
 - 独立登录页和 viewer/operator/reviewer/admin 四级 RBAC；写操作至少需要 operator，审计接口至少需要 reviewer。
+- 来源结单由 reviewer/admin 执行；推进到 `closed` 时校验名下检验样本，仍有未放行也未处置的样本会被拦截并返回剩余条数，全部结清后才允许关闭，列表逐单展示未结样本数。
 - 结果签发只能按 `draft -> peer_review -> signed/rejected` 推进；签发与驳回必须由不同于制单人的 reviewer/admin 完成。
 - 每次签发创建、草稿编辑和状态决策都会追加不可覆盖的版本，保留证据、操作者、原因和 request ID。
 - 所有状态变化使用乐观锁并写入不可覆盖的审计日志；已进入复核的签发业务字段不可再编辑。

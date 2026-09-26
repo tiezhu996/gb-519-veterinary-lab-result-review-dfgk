@@ -112,6 +112,38 @@ same_actor_status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "http://127.
 curl -fsS "http://127.0.0.1:${BACKEND_PORT:-19519}/api/audits/ResultSignoff/$signoff_id?limit=10" \
   -H "Authorization: Bearer $reviewer_token" \
   | jq -e '[.data[].requestId] | index("gb519-signoff-create") != null and index("gb519-signoff-update") != null and index("gb519-signoff-submit") != null and index("gb519-signoff-signed") != null' >/dev/null
+
+# 结单守卫:列表展示未结样本数,operator 无权关闭,未结清前 reviewer 也被拦,结清后才放行
+case_row=$(curl -fsS "http://127.0.0.1:${BACKEND_PORT:-19519}/api/cases?search=AC-003" -H "Authorization: Bearer $reviewer_token")
+printf '%s' "$case_row" | jq -e '.data[0].unsettledSpecimens == 1' >/dev/null
+case_id=$(printf '%s' "$case_row" | jq -er '.data[0].id')
+case_version=$(printf '%s' "$case_row" | jq -er '.data[0].version')
+
+operator_close_status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:${BACKEND_PORT:-19519}/api/cases/$case_id/transition" \
+  -H "Authorization: Bearer $operator_token" -H 'Content-Type: application/json' \
+  -d "{\"status\":\"closed\",\"expectedVersion\":$case_version,\"reason\":\"operator must not close the case\"}")
+[ "$operator_close_status" = "403" ]
+
+blocked_close_status=$(curl -sS -o /tmp/gb519-close-blocked.json -w '%{http_code}' -X POST "http://127.0.0.1:${BACKEND_PORT:-19519}/api/cases/$case_id/transition" \
+  -H "Authorization: Bearer $reviewer_token" -H 'Content-Type: application/json' \
+  -d "{\"status\":\"closed\",\"expectedVersion\":$case_version,\"reason\":\"specimens still unsettled\"}")
+[ "$blocked_close_status" = "422" ]
+jq -e '.error == "business_rule" and (.message | test("还有 1 条"))' /tmp/gb519-close-blocked.json >/dev/null
+
+specimen_row=$(curl -fsS "http://127.0.0.1:${BACKEND_PORT:-19519}/api/specimens?search=S-003" -H "Authorization: Bearer $reviewer_token")
+specimen_id=$(printf '%s' "$specimen_row" | jq -er '.data[0].id')
+specimen_version=$(printf '%s' "$specimen_row" | jq -er '.data[0].version')
+curl -fsS -X POST "http://127.0.0.1:${BACKEND_PORT:-19519}/api/specimens/$specimen_id/transition" \
+  -H "Authorization: Bearer $reviewer_token" -H 'Content-Type: application/json' \
+  -d "{\"status\":\"released\",\"expectedVersion\":$specimen_version,\"reason\":\"release specimen before closing case\"}" \
+  | jq -e '.data.status == "released"' >/dev/null
+curl -fsS "http://127.0.0.1:${BACKEND_PORT:-19519}/api/cases?search=AC-003" -H "Authorization: Bearer $reviewer_token" \
+  | jq -e '.data[0].unsettledSpecimens == 0' >/dev/null
+curl -fsS -X POST "http://127.0.0.1:${BACKEND_PORT:-19519}/api/cases/$case_id/transition" \
+  -H "Authorization: Bearer $reviewer_token" -H 'Content-Type: application/json' \
+  -d "{\"status\":\"closed\",\"expectedVersion\":$case_version,\"reason\":\"all specimens settled, close the case\"}" \
+  | jq -e '.data.status == "closed"' >/dev/null
+
 curl -fsS "http://127.0.0.1:${BACKEND_PORT:-19519}/api/audit-summary?windowHours=24" -H "Authorization: Bearer $admin_token" \
   | jq -e '.data.total >= 6 and .data.transitions >= 3 and .data.uniqueActors >= 2' >/dev/null
 

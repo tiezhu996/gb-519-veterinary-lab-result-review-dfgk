@@ -8,6 +8,7 @@ type CreateSpecimen struct {
 	Code        string    `json:"code" binding:"required,min=2,max=64"`
 	Name        string    `json:"name" binding:"required,min=2,max=160"`
 	Description string    `json:"description" binding:"max=1000"`
+	CaseCode    string    `json:"caseCode" binding:"max=64"`
 	Facility    string    `json:"facility" binding:"required,max=120"`
 	Owner       string    `json:"owner" binding:"required,max=120"`
 	Category    string    `json:"category" binding:"required,max=80"`
@@ -23,6 +24,7 @@ type UpdateSpecimen struct {
 	ExpectedVersion uint      `json:"expectedVersion" binding:"required"`
 	Name            string    `json:"name" binding:"required,min=2,max=160"`
 	Description     string    `json:"description" binding:"max=1000"`
+	CaseCode        string    `json:"caseCode" binding:"max=64"`
 	Facility        string    `json:"facility" binding:"required,max=120"`
 	Owner           string    `json:"owner" binding:"required,max=120"`
 	Category        string    `json:"category" binding:"required,max=80"`

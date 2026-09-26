@@ -28,6 +28,8 @@ export function EntityPage({ config, useStore, showRiskTags = false, showResultP
   useEffect(() => { void load(config.path); }, [config.path, load]);
   const highRisk = useMemo(() => items.filter((item) => ['high', 'critical'].includes(item.riskLevel)).length, [items]);
   const canOperate = hasRole('operator');
+  const showUnsettled = config.key === 'animalCase';
+  const columnCount = showUnsettled ? 9 : 8;
 
   const createDemo = async () => {
     const now = Date.now();
@@ -45,15 +47,20 @@ export function EntityPage({ config, useStore, showRiskTags = false, showResultP
   const requiresPreparer = (item: DomainRecord) => config.key === 'resultSignoff' && item.status === 'draft';
   const requiresReviewer = (item: DomainRecord) => config.key === 'resultSignoff' && item.status === 'peer_review';
   const isOriginalPreparer = (item: DomainRecord) => Boolean(session?.username && session.username === item.preparedBy);
-  const canAdvance = (item: DomainRecord) => canOperate
+  const isCaseClose = (next: string | null) => config.key === 'animalCase' && next === 'closed';
+  const unsettledCount = (item: DomainRecord) => item.unsettledSpecimens ?? 0;
+  const canAdvance = (item: DomainRecord, next: string | null) => canOperate
+    && (!isCaseClose(next) || (hasRole('reviewer') && unsettledCount(item) === 0))
     && (!requiresPreparer(item) || isOriginalPreparer(item))
     && (!requiresReviewer(item) || (hasRole('reviewer') && !isOriginalPreparer(item)));
 
-  const unavailableReason = (item: DomainRecord) => {
+  const unavailableReason = (item: DomainRecord, next: string | null) => {
     if (!canOperate) return '只读';
     if (requiresPreparer(item) && !isOriginalPreparer(item)) return '等待制单人';
     if (requiresReviewer(item) && !hasRole('reviewer')) return '等待复核员';
     if (requiresReviewer(item) && isOriginalPreparer(item)) return '需异人复核';
+    if (isCaseClose(next) && !hasRole('reviewer')) return '需复核员或管理员结单';
+    if (isCaseClose(next) && unsettledCount(item) > 0) return `还有 ${unsettledCount(item)} 条未结样本`;
     return '流程结束';
   };
 
@@ -70,9 +77,9 @@ export function EntityPage({ config, useStore, showRiskTags = false, showResultP
     {showResultPanel && <section className="result-section"><header><h2>结果与版本证据</h2><span>签发版本、操作者和请求 ID 可追溯</span></header><ResultPanel records={items} /></section>}
     <section className="toolbar"><input aria-label="搜索" placeholder={`搜索${config.label}编码或名称`} value={search} onChange={(event) => setSearch(event.target.value)} /><UiButton onClick={() => void load(config.path, search)}>查询</UiButton><button className="link-button" onClick={() => { setSearch(''); void load(config.path); }}>重置</button></section>
     {error && <div className="alert" role="alert">{error}</div>}
-    <section className="table-shell" aria-busy={loading}><table><thead><tr><th>编码</th><th>名称</th><th>状态</th><th>风险</th><th>责任人</th><th>指标</th><th>更新时间</th><th>操作</th></tr></thead><tbody>
-      {items.map((item) => { const next = nextStatus(item.status, config.primaryTransitions); return <tr key={item.id}><td><strong>{item.code}</strong></td><td>{item.name}<small>{item.facility}</small></td><td><StatusBadge status={item.status}/></td><td>{showRiskTags ? <RiskTag level={item.riskLevel}/> : item.riskLevel}</td><td>{item.owner}</td><td>{item.metricValue} {item.metricUnit}</td><td>{formatDate(item.updatedAt)}</td><td>{next && canAdvance(item) ? <button className="table-action" onClick={() => setPending({ item, status: next })}>推进至 {next}</button> : <span className="muted">{next ? unavailableReason(item) : '流程结束'}</span>}</td></tr>; })}
-      {!items.length && !loading && <EmptyState message="暂无记录" colSpan={8} />}
+    <section className="table-shell" aria-busy={loading}><table><thead><tr><th>编码</th><th>名称</th><th>状态</th>{showUnsettled && <th>未结样本</th>}<th>风险</th><th>责任人</th><th>指标</th><th>更新时间</th><th>操作</th></tr></thead><tbody>
+      {items.map((item) => { const next = nextStatus(item.status, config.primaryTransitions); return <tr key={item.id}><td><strong>{item.code}</strong></td><td>{item.name}<small>{item.facility}</small></td><td><StatusBadge status={item.status}/></td>{showUnsettled && <td>{unsettledCount(item) > 0 ? <strong className="unsettled-count">{unsettledCount(item)} 条</strong> : <span className="muted">已结清</span>}</td>}<td>{showRiskTags ? <RiskTag level={item.riskLevel}/> : item.riskLevel}</td><td>{item.owner}</td><td>{item.metricValue} {item.metricUnit}</td><td>{formatDate(item.updatedAt)}</td><td>{next && canAdvance(item, next) ? <button className="table-action" onClick={() => setPending({ item, status: next })}>推进至 {next}</button> : <span className="muted">{next ? unavailableReason(item, next) : '流程结束'}</span>}</td></tr>; })}
+      {!items.length && !loading && <EmptyState message="暂无记录" colSpan={columnCount} />}
     </tbody></table>{loading && <div className="loading">正在同步业务数据…</div>}</section>
     <ConfirmDialog open={showCreate} title={`新增${config.label}`} onCancel={() => setShowCreate(false)} onConfirm={() => void createDemo().catch(() => undefined)}><p>将创建一条包含完整责任人、风险和证据信息的演示记录。</p></ConfirmDialog>
     <ConfirmDialog open={Boolean(pending)} title="确认状态迁移" onCancel={() => setPending(null)} onConfirm={() => void confirmTransition().catch(() => undefined)}><p>状态迁移会写入不可覆盖的版本与审计日志。</p><strong>{pending?.item.status} → {pending?.status}</strong></ConfirmDialog>

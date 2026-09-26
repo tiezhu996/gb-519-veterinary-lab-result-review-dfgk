@@ -91,7 +91,7 @@ func (h *AnimalCaseHandler) transition(c *gin.Context) {
 		util.Fail(c, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	item, err := h.service.Transition(c.Request.Context(), id, input, actorFromContext(c), requestIDFromContext(c))
+	item, err := h.service.Transition(c.Request.Context(), id, input, actorFromContext(c), roleFromContext(c), requestIDFromContext(c))
 	if err != nil {
 		handleError(c, err)
 		return

@@ -17,22 +17,38 @@ type AnimalCaseService interface {
 	Get(context.Context, uint) (model.AnimalCase, error)
 	Create(context.Context, dto.CreateAnimalCase, string, string) (model.AnimalCase, error)
 	Update(context.Context, uint, dto.UpdateAnimalCase, string, string) (model.AnimalCase, error)
-	Transition(context.Context, uint, dto.TransitionRequest, string, string) (model.AnimalCase, error)
+	Transition(context.Context, uint, dto.TransitionRequest, string, string, string) (model.AnimalCase, error)
 	Delete(context.Context, uint, string, string) error
 	StatusCounts(context.Context) (map[string]int64, error)
 }
 
 type animalCaseService struct {
 	repository repository.AnimalCaseRepository
+	specimens  repository.SpecimenRepository
 	security   SecurityService
 }
 
-func NewAnimalCaseService(repo repository.AnimalCaseRepository, security SecurityService) AnimalCaseService {
-	return &animalCaseService{repository: repo, security: security}
+func NewAnimalCaseService(repo repository.AnimalCaseRepository, specimens repository.SpecimenRepository, security SecurityService) AnimalCaseService {
+	return &animalCaseService{repository: repo, specimens: specimens, security: security}
 }
 
 func (s *animalCaseService) List(ctx context.Context, query dto.PageQuery) (repository.Page[model.AnimalCase], error) {
-	return s.repository.List(ctx, query)
+	page, err := s.repository.List(ctx, query)
+	if err != nil {
+		return page, err
+	}
+	codes := make([]string, 0, len(page.Items))
+	for _, item := range page.Items {
+		codes = append(codes, item.Code)
+	}
+	unsettled, err := s.specimens.CountUnsettledByCaseCodes(ctx, codes)
+	if err != nil {
+		return repository.Page[model.AnimalCase]{}, fmt.Errorf("count unsettled specimens: %w", err)
+	}
+	for index := range page.Items {
+		page.Items[index].UnsettledSpecimens = unsettled[page.Items[index].Code]
+	}
+	return page, nil
 }
 
 func (s *animalCaseService) Get(ctx context.Context, id uint) (model.AnimalCase, error) {
@@ -89,7 +105,7 @@ func (s *animalCaseService) Update(ctx context.Context, id uint, input dto.Updat
 	return s.repository.Get(ctx, id)
 }
 
-func (s *animalCaseService) Transition(ctx context.Context, id uint, input dto.TransitionRequest, actor, requestID string) (model.AnimalCase, error) {
+func (s *animalCaseService) Transition(ctx context.Context, id uint, input dto.TransitionRequest, actor, role, requestID string) (model.AnimalCase, error) {
 	current, err := s.repository.Get(ctx, id)
 	if err != nil {
 		return model.AnimalCase{}, err
@@ -97,6 +113,18 @@ func (s *animalCaseService) Transition(ctx context.Context, id uint, input dto.T
 	target := strings.TrimSpace(input.Status)
 	if !constants.CanTransition(constants.AnimalCaseTransitions, current.Status, target) {
 		return model.AnimalCase{}, fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, current.Status, target)
+	}
+	if target == "closed" {
+		if role != model.RoleReviewer && role != model.RoleAdmin {
+			return model.AnimalCase{}, fmt.Errorf("%w: 结单需要复核员或管理员执行", ErrForbidden)
+		}
+		unsettled, err := s.specimens.CountUnsettledByCaseCode(ctx, current.Code)
+		if err != nil {
+			return model.AnimalCase{}, fmt.Errorf("count unsettled specimens: %w", err)
+		}
+		if unsettled > 0 {
+			return model.AnimalCase{}, fmt.Errorf("%w: 名下还有 %d 条检验样本未放行也未处置", ErrUnsettledSpecimens, unsettled)
+		}
 	}
 	before := current.Status
 	current.Status = target

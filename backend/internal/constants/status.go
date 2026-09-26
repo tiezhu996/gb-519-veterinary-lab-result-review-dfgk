@@ -15,6 +15,10 @@ const (
 
 var AllSpecimenState = []string{"received", "testing", "hold", "released", "disposed"}
 
+// SettledSpecimenStates are the terminal specimen states (放行或处置) that allow
+// the owning 动物样本来源 to close. Anything else blocks the close transition.
+var SettledSpecimenStates = []string{string(SpecimenStateReleased), string(SpecimenStateDisposed)}
+
 type SignoffState string
 
 const (
